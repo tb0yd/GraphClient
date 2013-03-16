@@ -5,4 +5,4 @@
               {applications,[kernel,stdlib]},
               {mod,{graph_client_app,[]}},
               {env,[]},
-              {modules,[calc,graph_client_app,graph_client_sup]}]}.
+              {modules,[calc,graph_client_app,graph_client_sup,shortest]}]}.

@@ -15,6 +15,7 @@
 	 reload_data/1,
 	 reload_msg/0,
 	 compute/0,
+	 clean/0,
 	 compute_all/0,
 	 get_state/0,
 	 set_state/1,
@@ -64,6 +65,9 @@ reload_msg() ->
 
 compute() ->
     gen_fsm:send_event(?MODULE, {compute}).
+
+clean() ->
+    gen_fsm:send_event(?MODULE, {clean}).
 
 compute_all() ->
     gen_fsm:send_event(?MODULE, {compute_all}).
@@ -135,6 +139,11 @@ idle({compute}, State) ->
     Msg_list = State#state.msgs,
     New_Msgs = process_msgs(Msg_list,State),
     State1 = State#state{msgs1=New_Msgs},
+    {next_state, idle, State1};
+
+idle({clean}, State) ->
+    State1 = delete_long_paths(State),
+    io:format("cleaned ~p paths~n", [length(State#state.msgs) - length(State1#state.msgs)]),
     {next_state, idle, State1};
 
 idle({compute_all}, State) ->
@@ -294,14 +303,35 @@ calc_and_new_msg(Msg_head, State) ->
     {ToID, _FM, _QuerID, _Step, _Finct, Args} = Msg_head,
     Tab = State#state.vertices,
     [Vertex] = ets:lookup(Tab, ToID),  % is it right to assume one vertex?
-    {_,_,Edges} = Vertex,
-    make_messages(Edges, ToID, Args,[]).
+    {_,_,Edges,_} = Vertex,
+    make_messages(Tab, Edges, ToID, Args,[]).
 
-make_messages([], _ToID, _Args, Messages) ->
+make_messages(_, [], _ToID, _Args, Messages) ->
     Messages;
-make_messages(Edges, ToID, Args, Messages) ->
+make_messages(Tab, Edges, ToID, Args, Messages) ->
     [{Next_edge_id,_} | Edges_tail] = Edges,
     Args1 = [ToID | Args],
+    shortest:add_path(Tab, Args1),
     Messages1 = [{Next_edge_id, ToID, c, d, e, Args1} | Messages],
-    make_messages(Edges_tail, ToID, Args, Messages1).
-    
+    make_messages(Tab, Edges_tail, ToID, Args, Messages1).
+
+delete_long_paths(State) ->
+    Tab  = State#state.vertices,
+    Msgs = State#state.msgs,
+    New_msgs = delete_long_paths(Tab, Msgs, []),
+    State#state{msgs=New_msgs}.
+
+delete_long_paths(Tab, [Msg | Msgs], Done_msgs) ->
+    {ToID, _FM, _QuerID, _Step, _Finct, Args} = Msg,
+    Path = [ToID | Args],
+    case ets:lookup_element(Tab, ToID, 4) of
+      [] ->
+        delete_long_paths(Tab, Msgs, [Msg | Done_msgs]);
+      Current_shortest_path when length(Current_shortest_path) > length(Path) ->
+        delete_long_paths(Tab, Msgs, [Msg | Done_msgs]);
+      _ ->
+        delete_long_paths(Tab, Msgs, Done_msgs) %% delete path b/c a shorter one is already stored.
+    end;
+delete_long_paths(_, [], Done_msgs) ->
+    Done_msgs.
+
